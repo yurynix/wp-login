@@ -67,22 +67,32 @@ function getImports( filename, scssFilenames ) {
 
 
 function getDependencies( filepath ) {
-
 	const nodeModules = new Set();
 	const calypsoModules = new Set();
 
-	const modulesToProcess = [];
+	if ( ! filepath.match( /\.jsx?$/ ) ) {
+		console.warn( 'Skipping getting dependencies from', filepath );
+		return {
+			nodeModules,
+			calypsoModules
+		};
+	}
+
 	[ ...new Set( getImports( filepath ) ) ] // uniques only
-		.filter( dep => dep.indexOf( '.' ) != 0 ) // relative ../bla.js or ./bla.js
 		.forEach( dep => {
 			const firstPart = dep.split( '/' )[ 0 ];
 
-			const isNodeModule = fs.existsSync( path.join( PROJECT_DIR, "node_modules", firstPart ) );
+			const isNodeModule = dep.indexOf( '.' ) !== 0 && fs.existsSync( path.join( PROJECT_DIR, "node_modules", firstPart ) );
 
 			if ( isNodeModule ) {
 				nodeModules.add( dep );
 			} else {
-				calypsoModules.add( dep );
+				if ( dep.indexOf( '.' ) === 0 ) {
+					const depPath = path.resolve( path.join( path.dirname( filepath ), dep ) ).replace( path.join( PROJECT_DIR, 'client', '/' ), '' );
+					calypsoModules.add( depPath );
+				} else {
+					calypsoModules.add( dep );
+				}
 			}
 		} );
 
@@ -98,8 +108,10 @@ function getActualPath( mod ) {
 	try {
 		modulePath = require.resolve( modulePath );
 	} catch ( ex ) {
-		if ( fs.existsSync( modulePath + '.jsx' ) ) {
-			modulePath += '.jsx'
+		if ( fs.existsSync( modulePath + '.js' ) ) {
+			modulePath += '.js';
+		} else if ( fs.existsSync( modulePath + '.jsx' ) ) {
+			modulePath += '.jsx';
 		} else {
 			modulePath += '/index.jsx';
 		}
@@ -109,7 +121,7 @@ function getActualPath( mod ) {
 }
 
 
-async function traverse() {
+function traverse() {
 
 	const modulesToProcess = [ require.resolve( CLIENT_DIR ) ];
 	let nodeModules = new Set();
@@ -124,7 +136,7 @@ async function traverse() {
 				let modulePath = getActualPath( mod );
 
 				if ( ! fs.existsSync( modulePath ) ) {
-				 	console.warn( 'Cant resolve', modulePath );
+				 	console.warn( 'Cant resolve', mod, modulePath );
 				 	return;
 				}
 
@@ -139,12 +151,12 @@ async function traverse() {
 		nodeModules = new Set( [ ...nodeModules, ...result.nodeModules ] );
 	}
 
-	[...calypsoModules].forEach( calypsoMod => {
+	[ ...calypsoModules, 'login' ].forEach( calypsoMod => {
 		const modPath = getActualPath( calypsoMod );
 
 		fsExtra.copy( 
 			modPath, modPath.replace( PROJECT_DIR, OUTPUT_DIR )
-		).then( () => console.log( 'Copied', calypsoMod ), err => console.error( err, calypsoMod ) );
+		).catch( err => console.error( err, calypsoMod ) );
 	} );
 	console.log( 'calypsoModules', calypsoModules );
 	console.log( 'nodeModules', nodeModules );
